@@ -87,49 +87,46 @@ module Helpers =
     let headOrNone (input:seq<_>) =
       System.Linq.Enumerable.FirstOrDefault(input |> Seq.map Some)
 
-    type IBoxedVector =
-          inherit IVector<obj>
-          abstract UnboxedVector : IVector
+    //type IBoxedVector =
+    //      inherit IVector<obj>
+    //      abstract UnboxedVector : IVector
 
-    let inline unboxVector (v:IVector) =
-        match v with
-        | :? IBoxedVector as vec -> vec.UnboxedVector
-        | vec -> vec
+    //let inline unboxVector (v:IVector) =
+    //    match v with
+    //    | :? IBoxedVector as vec -> vec.UnboxedVector
+    //    | vec -> vec
 
-    let fromColumnsNonGeneric indexBuilder vectorBuilder (seriesConv:'S -> ISeries<_>) (nested:Series<_, 'S>) =
-        let columns = Series.observations nested |> Array.ofSeq
-        let rowIndex = columns |> Seq.head |> (fun (_, s) -> (seriesConv s).Index)
-        // OPTIMIZATION: If all series have the same index (same object), then no join is needed
-        // (This is particularly valuable for things like +, *, /, - operators on Frame)
-        let vector = columns |> Seq.map (fun (_, s) ->
-            // When the nested series data is in 'IBoxedVector', get the unboxed representation
-            unboxVector (seriesConv s).Vector) |> Vector.ofValues
-        Frame<_, _>(rowIndex, Index.ofKeys (Array.map fst columns), vector, indexBuilder, vectorBuilder)
+    //let fromColumnsNonGeneric indexBuilder vectorBuilder (seriesConv:'S -> ISeries<_>) (nested:Series<_, 'S>) =
+    //    let columns = Series.observations nested |> Array.ofSeq
+    //    let rowIndex = columns |> Seq.head |> (fun (_, s) -> (seriesConv s).Index)
+    //    // OPTIMIZATION: If all series have the same index (same object), then no join is needed
+    //    // (This is particularly valuable for things like +, *, /, - operators on Frame)
+    //    let vector = columns |> Seq.map (fun (_, s) ->
+    //        // When the nested series data is in 'IBoxedVector', get the unboxed representation
+    //        unboxVector (seriesConv s).Vector) |> Vector.ofValues
+    //    Frame<_, _>(rowIndex, Index.ofKeys (Array.map fst columns), vector, indexBuilder, vectorBuilder)
    
 
 module Frame =
     
     open Helpers
 
+    /// Removes column from frame if it exists
     let dropColIfExists (col:'C) (frame:Frame<'R,'C>)  =
         try 
             frame |> Frame.dropCol col
         with _ ->
             frame
 
+    /// Removes multiple columns from frame if they exist
     let dropColsIfExist (cols:seq<'C>) (frame:Frame<'R,'C>)  =
         let rec loop (cols:'C list) f =
             match cols with
             |col::tail -> loop tail (f |> dropColIfExists col)
             |_ -> f
         loop (cols |> Seq.toList) frame
-    
-    let dropAllColsExcept (cols:seq<'C>) (frame:Frame<'R,'C>) =
-    
-        let colsToRemove = frame.ColumnKeys |> Seq.filter (fun col -> not (Seq.contains col cols))
 
-        frame |> dropColsIfExist colsToRemove
-
+    /// For given frame, drops all rows except the first appearing of distinct column value
     let distinctRowValues colName (df:Frame<int,_>) = 
         df
         |> Frame.groupRowsByString colName
@@ -221,27 +218,41 @@ module Frame =
     let columnOfRowKeys (columnKey : 'C) (frame : Frame<'R,'C>) : Frame<'R,'C> =
         columnOfRowKeysBy columnKey id frame
 
-    /// If the predicate returns false for a value, replaces the value with missing
-    let filter (predicate : 'R -> 'C -> 'a -> bool) (frame : Frame<'R,'C>) = // : Frame<'R,'C> =
-        let indexBuilder = LinearIndexBuilder.Instance
-        let vectorBuilder = ArrayVector.ArrayVectorBuilder.Instance
-        let f = System.Func<_,_,_,_>(predicate)
-        frame.Columns |> Series.map (fun c os ->
-            match os.TryAs<'a>(ConversionKind.Safe) with
-            | OptionalValue.Present s -> Series.filter (fun r v -> f.Invoke(r, c, v)) s :> ISeries<_>
-            | _ -> os :> ISeries<_>)
-        |> fromColumnsNonGeneric indexBuilder vectorBuilder id
+    /// Applies the function f to the values of given column of the frame and adds the result as a new column to the frame
+    let columnOfColumnBy (oldColumnKey : 'C) (newColumnKey : 'C)  (f : 'T -> 'U) (frame : Frame<'R,'C>) : Frame<'R,'C> =
+        let newColumn = 
+            frame.GetColumn<'T> oldColumnKey
+            |> Series.mapValues f
+        Frame.addCol newColumnKey newColumn frame
 
-    /// If the predicate returns false for a value, replaces the value with missing
-    let filterValues (predicate : 'a -> bool) (frame : Frame<'R,'C>) : Frame<'R,'C> =
-        let indexBuilder = LinearIndexBuilder.Instance
-        let vectorBuilder = ArrayVector.ArrayVectorBuilder.Instance
-        let f = System.Func<_,_>(predicate)
-        frame.Columns |> Series.map (fun c os ->
-            match os.TryAs<'a>(ConversionKind.Safe) with
-            | OptionalValue.Present s -> Series.filter (fun r v -> f.Invoke(v)) s :> ISeries<_>
-            | _ -> os :> ISeries<_>)
-        |> fromColumnsNonGeneric indexBuilder vectorBuilder id
+    /// Applies the function f to the values of given column of the frame and adds the result as a new column to the frame
+    let columnOfColumnsBy (oldColumnKeys : 'C seq) (newColumnKey : 'C)  (f : 'R -> 'T seq -> 'U) (frame : Frame<'R,'C>) : Frame<'R,'C> =
+        let newColumn = 
+            Frame.sliceCols oldColumnKeys frame
+            |> Frame.mapRows (fun r os -> os.As<'T>().Values |> f r)
+        Frame.addCol newColumnKey newColumn frame
+
+    ///// If the predicate returns false for a value, replaces the value with missing
+    //let filter (predicate : 'R -> 'C -> 'a -> bool) (frame : Frame<'R,'C>) = // : Frame<'R,'C> =
+    //    let indexBuilder = LinearIndexBuilder.Instance
+    //    let vectorBuilder = ArrayVector.ArrayVectorBuilder.Instance
+    //    let f = System.Func<_,_,_,_>(predicate)
+    //    frame.Columns |> Series.map (fun c os ->
+    //        match os.TryAs<'a>(ConversionKind.Safe) with
+    //        | OptionalValue.Present s -> Series.filter (fun r v -> f.Invoke(r, c, v)) s :> ISeries<_>
+    //        | _ -> os :> ISeries<_>)
+    //    |> fromColumnsNonGeneric indexBuilder vectorBuilder id
+
+    ///// If the predicate returns false for a value, replaces the value with missing
+    //let filterValues (predicate : 'a -> bool) (frame : Frame<'R,'C>) : Frame<'R,'C> =
+    //    let indexBuilder = LinearIndexBuilder.Instance
+    //    let vectorBuilder = ArrayVector.ArrayVectorBuilder.Instance
+    //    let f = System.Func<_,_>(predicate)
+    //    frame.Columns |> Series.mapValues (fun os ->
+    //        match os.TryAs<'a>(ConversionKind.Safe) with
+    //        | OptionalValue.Present s -> Series.filterValues (fun v -> f.Invoke(v)) s :> ISeries<_>
+    //        | _ -> os :> ISeries<_>)
+    //    |> fromColumnsNonGeneric indexBuilder vectorBuilder id
 
     /// Creates a new data frame that contains only those columns of the original 
     /// data frame which contain at least one value.
@@ -316,3 +327,18 @@ module Frame =
         let newData = data.Select(transformColumn vectorbuilder newRowIndex.AddressingScheme rowCmd)
         // Combine column vectors a single vector & return results
         Frame(newRowIndex, frame.ColumnIndex, newData, indexBuilder, vectorbuilder)
+
+    /// Creates a new data frame, where for each group of rows as specified by `levelSel`, the row which has the lowest resulting value in the given column after applying `op` gets selected.
+    let selectRowsByColumn column (levelSel : 'R -> 'NewR) op (frame:Frame<'R,'C>) =
+        let operation frame =
+            frame
+            |> Frame.sortRowsBy column op
+            |> fun f -> f.GetRowAt 0
+        frame
+        |> Frame.pivotTable 
+            (fun (rowKey) _-> 
+                levelSel rowKey)
+            (fun _ _-> "Reduced") 
+            operation 
+        |> fun f -> f.GetColumn<Series<'C,_>> "Reduced"
+        |> Frame.ofRows
