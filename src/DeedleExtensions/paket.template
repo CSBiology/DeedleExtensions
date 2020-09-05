@@ -1,0 +1,20 @@
+type 
+	project
+id
+	DeedleExtensions
+title 
+	DeedleExtensions
+version
+	0.1.0-beta
+owners 
+	CSBiology
+authors 
+	Heinrich Lukas Weil, Kevin Schneider, Timo Mühlhaus
+description 
+	Additional functions for handling Deedle frames.
+projectUrl
+    https://github.com/CSBiology/DeedleExtensions
+licenseUrl
+    https://github.com/CSBiology/DeedleExtensions/blob/master/LICENSE
+language
+    F#
