@@ -5,5 +5,3 @@ NUGET
     Deedle (2.2)
       FSharp.Core (>= 4.5.2)
     FSharp.Core (4.7.2)
-    FSharpAux (1.0)
-      FSharp.Core

@@ -4,9 +4,8 @@ open Deedle
 open Deedle.Vectors
 open Deedle.Indices
 open Deedle.Indices.Linear
-open FSharpAux
 
-module Helpers =
+module internal Helpers =
 
     open System
 
@@ -107,6 +106,15 @@ module Helpers =
     //    Frame<_, _>(rowIndex, Index.ofKeys (Array.map fst columns), vector, indexBuilder, vectorBuilder)
    
 
+module Series = 
+
+    /// Appends a given series by a key it's value 
+    let append (s:Series<'key,'value>) key value =
+        s
+        |> Series.observations
+        |> Seq.append [(key,value)]
+        |> Series.ofObservations
+
 module Frame =
     
     open Helpers
@@ -133,47 +141,51 @@ module Frame =
         |> Frame.applyLevel fst (fun os -> os.FirstValue())
         |> Frame.indexRowsOrdinally
 
-    // Appends a given series by a key it's value 
-    let append (s:Series<'key,'value>) key value =
-        s
-        |> Series.observations
-        |> Seq.append [(key,value)]
-        |> Series.ofObservations
-
-    let composeRowsBy f (keyColName:'a) (valueColName:'a) (table:Frame<_,'a>)=
+    /// Compose they keys and values specified by the column name and apply the function f to all values of the same key
+    let composeRowsBy (f : 'b seq -> 'c) (keyColName:'a) (valueColName:'a) (table:Frame<_,'a>) =
         let keys =
-            table.GetColumn<'a>(keyColName)
+            table.GetColumn<'d>(keyColName)
             |> Series.values
         let values = 
-            table.GetColumn<'a>(valueColName)
+            table.GetColumn<'b>(valueColName)
             |> Series.values
 
-        Seq.zip keys values
-        |> Map.compose
-        |> Map.map (fun k v -> f v )
-        |> Map.toSeq
+        Seq.zip keys values  
+        |> Seq.groupBy fst
+        |> Seq.map (fun (a,b) -> a, b |> Seq.map snd |> f)
         |> Series.ofObservations
 
-
-    let decomposeRowsBy f colName (df:Frame<int,_>) =
-        df
-        |> Frame.groupRowsByString colName
-        |> Frame.rows
-        |> Series.observations
-        |> Seq.collect (fun (k,os) -> f k
-                                      |> Seq.mapi (fun i v -> let k',i' = k
-                                                              (k',i'+ i),append os "decomposed" (v))) // * (box v)
-        |> Frame.ofRows
-        |> Frame.indexRowsOrdinally
+    ///// Use expandRowsbyColumn instead ///////
+    //let decomposeRowsBy f colName (df:Frame<int,_>) =
+    //    df
+    //    |> Frame.groupRowsByString colName
+    //    |> Frame.rows
+    //    |> Series.observations
+    //    |> Seq.collect (fun (k,os) -> f k
+    //                                  |> Seq.mapi (fun i v -> let k',i' = k
+    //                                                          (k',i'+ i),Series.append os "decomposed" (v))) // * (box v)
+    //    |> Frame.ofRows
+    //    |> Frame.indexRowsOrdinally
 
  
-     // Frame toJaggedArray
-    let Frame_ofJaggedArrayCol (rowNames:'rKey seq) (colNames:'cKey seq) (colJarray:'value array array) =       
-        //TODO:
-        // If length
+    /// Creates a frame from a column array and the according keys. Length of outer array has to match colNames length. Length of inner array has to match rowNames length.
+    let ofJaggedArrayCol (rowNames:'rKey seq) (colNames:'cKey seq) (colJarray:'value array array) =   
+        
+        let colNamesLength = colNames |> Seq.length
+        let rowNamesLength = rowNames |> Seq.length
+        if colJarray.Length <> colNamesLength then 
+            failwithf "Creaing frame of column arrays failed: length %i of column names does not match length %i of column array" colNamesLength colJarray.Length
+        let mutable i = 0
 
         colJarray
-        |> Seq.map2 (fun colKey arr -> colKey,Series(rowNames, arr)  ) colNames 
+        |> Seq.map2 (fun colKey arr -> 
+
+            if arr.Length <> rowNamesLength then
+                failwithf "Creaing frame of column arrays failed: length %i of row names does not match length %i of column at position %i" rowNamesLength arr.Length i
+            i <- i + 1
+
+            colKey,Series(rowNames, arr)  )            
+            colNames 
         |> frame 
 
 
