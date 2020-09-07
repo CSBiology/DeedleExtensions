@@ -26,10 +26,12 @@ Team2 -> 42
 
 We can join them over the shared teamName:
 
-<pre>
+```F#
 Frame.align snd id frame1 frame2
 |> Frame.mapRowKeys (fun (team,(name,_),_) -> name,team)
+```
 
+<pre>
                  Hometown   Room 
 Frank   Team1 -> Frankfurt  28   
 Barbara Team1 -> Stralsund  28   
